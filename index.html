@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HerbTrace — Flare Coston2</title>
+
+  <!-- Working Ethers -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+
+  <style>
+    body { font-family: Arial; max-width: 800px; margin: 20px auto; background: #f8fafc; }
+    .card { background: white; padding: 16px; margin: 15px 0; border-radius: 10px; border: 1px solid #e2e8f0; }
+    button { background: #0ea5e9; color: white; padding: 10px 14px; border: none; border-radius: 6px; cursor: pointer; }
+    input { width: 100%; padding: 8px; margin-top: 4px; margin-bottom: 10px; border: 1px solid #cbd5e1; border-radius: 6px; }
+    .list-item { border-top: 1px solid #e5e7eb; padding: 10px 0; }
+    .status { margin-bottom: 8px; font-weight: bold; }
+  </style>
+</head>
+
+<body>
+
+  <h2>🌿 HerbTrace — Flare Coston2</h2>
+  <div id="status" class="status">🔴 Wallet Not Connected</div>
+
+  <!-- Connect -->
+  <div class="card">
+    <button id="connectBtn">Connect MetaMask (Coston2)</button>
+    <div id="account" style="margin-top:10px; color:#475569;"></div>
+  </div>
+
+  <!-- Create batch -->
+  <div class="card">
+    <h3>1️⃣ Create Herb Batch</h3>
+
+    <label>Herb Name</label>
+    <input id="herbName" placeholder="Tulsi / Neem" />
+
+    <label>Collector Name</label>
+    <input id="collector" placeholder="Farmer Name" />
+
+    <label>Location</label>
+    <input id="locationText" placeholder="Village / District" />
+
+    <label>Latitude</label>
+    <input id="lat" placeholder="Auto-detected" />
+
+    <label>Longitude</label>
+    <input id="lon" placeholder="Auto-detected" />
+
+    <button id="gpsBtn">📍 Auto Detect GPS</button>
+    <button id="submitBtn" style="margin-left:10px;">Submit to Blockchain</button>
+
+    <div id="submitStatus" style="margin-top:12px; color:#047857;"></div>
+
+    <!-- QR CODE AREA -->
+    <div id="qrArea" style="margin-top:20px;"></div>
+
+  </div>
+
+  <!-- List -->
+  <div class="card">
+    <h3>2️⃣ View Blockchain Records</h3>
+    <button id="refreshBtn">Refresh Records</button>
+
+    <div id="list" style="margin-top:12px;"></div>
+  </div>
+
+<script>
+/* YOUR FLARE COSTON2 DEPLOYED ADDRESS */
+const CONTRACT_ADDRESS = "0xacd1E72Db2E97E91CBdAC14F87ED4Af5b847D83E";
+
+/* ABI */
+const CONTRACT_ABI = [
+  {
+    "inputs":[
+      {"internalType":"string","name":"_herbName","type":"string"},
+      {"internalType":"string","name":"_location","type":"string"},
+      {"internalType":"string","name":"_collector","type":"string"},
+      {"internalType":"int256","name":"_latitude","type":"int256"},
+      {"internalType":"int256","name":"_longitude","type":"int256"}
+    ],
+    "name":"addCollection",
+    "outputs":[{"internalType":"uint256","name":"","type":"uint256"}],
+    "stateMutability":"nonpayable",
+    "type":"function"
+  },
+  {
+    "inputs":[{"internalType":"uint256","name":"","type":"uint256"}],
+    "name":"eventsList",
+    "outputs":[
+      {"internalType":"uint256","name":"id","type":"uint256"},
+      {"internalType":"string","name":"herbName","type":"string"},
+      {"internalType":"string","name":"location","type":"string"},
+      {"internalType":"string","name":"collector","type":"string"},
+      {"internalType":"int256","name":"latitude","type":"int256"},
+      {"internalType":"int256","name":"longitude","type":"int256"},
+      {"internalType":"uint256","name":"timestamp","type":"uint256"}
+    ],
+    "stateMutability":"view",
+    "type":"function"
+  },
+  {
+    "inputs":[],
+    "name":"nextId",
+    "outputs":[{"internalType":"uint256","name":"","type":"uint256"}],
+    "stateMutability":"view",
+    "type":"function"
+  }
+];
+
+let provider, signer, contract;
+
+/* CONNECT WALLET */
+document.getElementById("connectBtn").onclick = async () => {
+  try {
+    await ethereum.request({ method: "eth_requestAccounts" });
+
+    try {
+      await ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: "0x72" }]
+      });
+    } catch (err) {
+      if (err.code === 4902) {
+        await ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: "0x72",
+            chainName: "Flare Coston2",
+            rpcUrls: ["https://coston2-api.flare.network/ext/bc/C/rpc"],
+            nativeCurrency: { name: "C2FLR", symbol: "C2FLR", decimals: 18 }
+          }]
+        });
+      }
+    }
+
+    provider = new ethers.providers.Web3Provider(window.ethereum);
+    signer = provider.getSigner();
+    contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
+    const addr = await signer.getAddress();
+    document.getElementById("account").innerText = "Connected: " + addr;
+    document.getElementById("status").innerHTML = "🟢 Connected to Coston2";
+
+  } catch (err) {
+    alert("Connection failed: " + err.message);
+  }
+};
+
+/* GPS BUTTON */
+document.getElementById("gpsBtn").onclick = () => {
+  navigator.geolocation.getCurrentPosition((pos) => {
+    document.getElementById("lat").value = pos.coords.latitude.toFixed(6);
+    document.getElementById("lon").value = pos.coords.longitude.toFixed(6);
+  });
+};
+
+/* SUBMIT BUTTON */
+document.getElementById("submitBtn").onclick = async () => {
+  if (!contract) return alert("Connect wallet first!");
+
+  const herb = herbName.value.trim();
+  const col = collector.value.trim();
+  const loc = locationText.value.trim();
+
+  const latValue = document.getElementById("lat").value.trim();
+  const lonValue = document.getElementById("lon").value.trim();
+
+  if (!herb || !col || !loc) return alert("Fill all fields!");
+  if (!latValue || !lonValue) return alert("GPS missing!");
+
+  const lat = BigInt(Math.round(parseFloat(latValue) * 1e6));
+  const lon = BigInt(Math.round(parseFloat(lonValue) * 1e6));
+
+  try {
+    const tx = await contract.addCollection(herb, loc, col, lat, lon);
+    document.getElementById("submitStatus").innerText = "Transaction sent...";
+
+    await tx.wait();
+    document.getElementById("submitStatus").innerText = "✔ Saved to Blockchain";
+
+    /* -------------------------
+       QR CODE SECTION
+    -------------------------*/
+    const qrData = `
+Herb: ${herb}
+Collector: ${col}
+Location: ${loc}
+Latitude: ${Number(lat)/1e6}
+Longitude: ${Number(lon)/1e6}
+    `;
+
+    const qrUrl =
+      "https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=" +
+      encodeURIComponent(qrData);
+
+    document.getElementById("qrArea").innerHTML = `
+      <h3>📦 QR Code for This Batch</h3>
+      <img src="${qrUrl}" alt="QR Code">
+    `;
+
+  } catch (err) {
+    alert("TX Failed: " + err.message);
+  }
+};
+
+/* REFRESH BUTTON */
+document.getElementById("refreshBtn").onclick = async () => {
+  if (!contract) return alert("Connect wallet first!");
+
+  const total = Number(await contract.nextId());
+  let html = "";
+
+  for (let i = 1; i < total; i++) {
+    const d = await contract.eventsList(i);
+
+    html += `
+      <div class="list-item">
+        <b>${d.herbName}</b> (#${d.id})<br>
+        📍 ${d.location} — ${d.collector}<br>
+        🗺 ${(Number(d.latitude)/1e6).toFixed(6)}, ${(Number(d.longitude)/1e6).toFixed(6)}<br>
+        ⏱ ${new Date(Number(d.timestamp) * 1000).toLocaleString()}
+      </div>
+    `;
+  }
+
+  document.getElementById("list").innerHTML = html || "No records yet.";
+};
+</script>
+
+</body>
+</html>
